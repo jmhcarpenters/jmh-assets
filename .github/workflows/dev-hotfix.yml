@@ -1,0 +1,86 @@
+name: Apply dev PWA hotfixes
+
+on:
+  push:
+    branches: [dev-pwa]
+    paths:
+      - '.github/workflows/dev-hotfix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  hotfix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev-pwa
+
+      - name: Patch known JavaScript bugs
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          index = Path('apps-script/Index.html')
+          text = index.read_text(encoding='utf-8')
+
+          # 1) createNewChangeOrder() accidentally referenced an undefined `item`.
+          text = re.sub(
+              r'\s*var\s+runner\s*=\s*item\.queueType\s*===\s*["\']timeOff["\']\s*\?\s*["\']submitTimeOffRequest["\']\s*:\s*["\']submitQueuedTimeAction["\']\s*;?',
+              '',
+              text,
+              count=1,
+          )
+
+          # 2) syncPendingActions() used `runner` without defining it.
+          runner_stmt = 'const runner=item.queueType==="timeOff"?"submitTimeOffRequest":"submitQueuedTimeAction";'
+          if runner_stmt not in text:
+              marker = 'else return;google.script.run'
+              if marker in text:
+                  text = text.replace(marker, 'else return;' + runner_stmt + 'google.script.run', 1)
+              else:
+                  marker = 'else return;\n  google.script.run'
+                  if marker in text:
+                      text = text.replace(marker, 'else return;\n  ' + runner_stmt + '\n  google.script.run', 1)
+                  else:
+                      raise SystemExit('Could not locate syncPendingActions insertion point')
+
+          if '[runner](item)' not in text:
+              raise SystemExit('Expected queued action dispatch was not found')
+          if re.search(r'var\s+runner\s*=\s*item\.queueType', text):
+              raise SystemExit('Undefined createNewChangeOrder runner reference still present')
+
+          index.write_text(text, encoding='utf-8')
+
+          admin = Path('apps-script/Admin.html')
+          admin_text = admin.read_text(encoding='utf-8')
+
+          # 3) Time-off manager UI calls showErr/showMsg; provide safe wrappers.
+          helpers = "function showErr(err){message('Error: '+((err&&err.message)||err||'The action could not be completed.'))}function showMsg(text){message(text)}"
+          if 'function showErr(' not in admin_text:
+              marker = 'function loadTimeOff()'
+              if marker not in admin_text:
+                  raise SystemExit('Could not locate Admin time-off functions')
+              admin_text = admin_text.replace(marker, helpers + marker, 1)
+
+          if 'function showErr(' not in admin_text or 'function showMsg(' not in admin_text:
+              raise SystemExit('Admin helper patch failed')
+
+          admin.write_text(admin_text, encoding='utf-8')
+          PY
+
+      - name: Commit hotfixes
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No changes required"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps-script/Index.html apps-script/Admin.html
+          git commit -m "Fix dev PWA client-side bugs"
+          git push origin HEAD:dev-pwa
