@@ -62,7 +62,7 @@ function getCategories() {
 
 
 function getPhases(category) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Tasks");
+  const sheet = getJmhSpreadsheet_().getSheetByName("Tasks");
   if (!sheet) throw new Error('The "Tasks" sheet was not found.');
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
@@ -99,7 +99,7 @@ function submitTimeAction(data) {
   const passcode = String(data.passcode || "").trim();
   verifyCrewDeviceOrPasscode(employee, passcode, data.deviceToken);
 
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const spreadsheet = getJmhSpreadsheet_();
   const timeLog = spreadsheet.getSheetByName("Time Log");
   const taskLog = spreadsheet.getSheetByName("Task Log");
 
@@ -269,7 +269,7 @@ function startTask(timeLog, taskLog, employee, timestamp, job, phase, task, note
   const openTaskRow = findOpenTaskRow(taskLog, employee, timestamp);
   if (openTaskRow) setTaskEndTime(taskLog, openTaskRow, timestamp);
 
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const spreadsheet = getJmhSpreadsheet_();
   const changeOrderLog = spreadsheet.getSheetByName("Change Order Log");
   if (changeOrderLog) {
     const openChangeOrderRow = findOpenChangeOrderRow(changeOrderLog, employee, timestamp);
@@ -308,7 +308,7 @@ function clockOut(timeLog, taskLog, employee, timestamp) {
   if (!openTimeRow) throw new Error("No open time entry was found for " + employee + ".");
   const openTaskRow = findOpenTaskRow(taskLog, employee, timestamp);
   if (openTaskRow) setTaskEndTime(taskLog, openTaskRow, timestamp);
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const spreadsheet = getJmhSpreadsheet_();
   const changeOrderLog = spreadsheet.getSheetByName("Change Order Log");
   if (changeOrderLog) {
     const openChangeOrderRow = findOpenChangeOrderRow(changeOrderLog, employee, timestamp);
@@ -342,7 +342,7 @@ function appendTimeLogRow(sheet, timestamp, employee, job, notes) {
 }
 
 function getEmployeeHourlyRateSnapshot_(employee) {
-  const employees = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Employees");
+  const employees = getJmhSpreadsheet_().getSheetByName("Employees");
   if (!employees || employees.getLastRow() < 2) return "";
   const rows = employees.getRange(2, 1, employees.getLastRow() - 1, 3).getValues();
   const target = String(employee || "").trim().toLowerCase();
@@ -454,7 +454,7 @@ function setEndTime(sheet, row, timestamp) {
 }
 
 function startChangeOrder(timeLog, employee, timestamp, job, changeOrderId, notes) {
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const spreadsheet = getJmhSpreadsheet_();
   const taskLog = spreadsheet.getSheetByName("Task Log");
   const changeOrderLog = spreadsheet.getSheetByName("Change Order Log");
   const changeOrders = spreadsheet.getSheetByName("Change Orders");
@@ -503,7 +503,7 @@ function startChangeOrder(timeLog, employee, timestamp, job, changeOrderId, note
 function getEmployeeClockStatus(employee) {
   const name = String(employee || "").trim();
   if (!name) return {clockedIn:false, clockInTime:"", job:""};
-  const timeLog = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Time Log");
+  const timeLog = getJmhSpreadsheet_().getSheetByName("Time Log");
   if (!timeLog) throw new Error('The "Time Log" sheet was not found.');
   const timestamp = new Date();
   const openRow = findOpenRow(timeLog, name, timestamp);
@@ -518,7 +518,7 @@ function getEmployeeClockStatus(employee) {
 }
 
 function initializeJobCoordinates() {
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const spreadsheet = getJmhSpreadsheet_();
   const sheet = spreadsheet.getSheetByName("Jobs");
   if (!sheet || sheet.getLastRow() < 2) return [];
   const jobs = sheet.getRange(2, 2, sheet.getLastRow() - 1, 1).getDisplayValues().flat();
@@ -539,7 +539,7 @@ function getCrewHours(employee, passcode, deviceToken) {
   passcode = String(passcode || "").trim();
   if (!employee) throw new Error("Please select your name.\nSeleccione su nombre.");
   verifyCrewDeviceOrPasscode(employee, passcode, deviceToken);
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Time Log");
+  const sheet = getJmhSpreadsheet_().getSheetByName("Time Log");
   if (!sheet) throw new Error('The "Time Log" sheet was not found.');
 
   const now = new Date();
@@ -567,7 +567,7 @@ function getCrewHours(employee, passcode, deviceToken) {
       else if (day >= previousStart && day < currentStart) previousHours += paidHours;
     });
   }
-  const timezone = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
+  const timezone = getJmhSpreadsheet_().getSpreadsheetTimeZone();
   return {
     employee:employee,
     currentHours:Math.round(currentHours*100)/100,

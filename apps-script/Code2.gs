@@ -192,7 +192,7 @@ function getEmployees() {
 }
 
 function finalizePayroll() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getJmhSpreadsheet_();
   const payroll = ss.getSheetByName("Payroll");
   const history = ss.getSheetByName("Payroll History");
   const ui = SpreadsheetApp.getUi();
@@ -480,7 +480,7 @@ function findJohnPayrollEmail_() {
   const configured = PropertiesService.getScriptProperties().getProperty("JOHN_PAYROLL_EMAIL");
   if (configured && configured.indexOf("@") > 0) return configured.trim();
 
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Employees");
+  const sheet = getJmhSpreadsheet_().getSheetByName("Employees");
   if (!sheet || sheet.getLastRow() < 2 || sheet.getLastColumn() < 1) return "";
 
   const values = sheet.getDataRange().getDisplayValues();
@@ -516,7 +516,7 @@ function createChangeOrder(data) {
   if (!job || !description) {
     throw new Error("Job and description are required.");
   }
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Change Orders");
+  const sheet = getJmhSpreadsheet_().getSheetByName("Change Orders");
   if (!sheet) throw new Error('The "Change Orders" sheet was not found.');
   const lock = LockService.getDocumentLock();
   lock.waitLock(10000);
