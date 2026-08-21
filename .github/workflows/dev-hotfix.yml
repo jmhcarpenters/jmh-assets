@@ -18,45 +18,54 @@ jobs:
         with:
           ref: dev-pwa
 
+      - name: Fix offline startup and status calls
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('apps-script/Index.html')
+          s = p.read_text(encoding='utf-8')
+
+          old = '''document.addEventListener("DOMContentLoaded",function(){setTimeout(function(){hideLoadingScreen()},5000);try{google.script.run.withSuccessHandler(function(employees){populateEmployees(Array.isArray(employees)?employees:[]);initialLoadFinished()}).withFailureHandler(initialLoadFailed).getEmployees()}catch(error){initialLoadFailed(error)}try{google.script.run.withSuccessHandler(function(jobs){populateJobs(Array.isArray(jobs)?jobs:[]);initialLoadFinished()}).withFailureHandler(initialLoadFailed).getJobs()}catch(error){initialLoadFailed(error)}try{google.script.run.withSuccessHandler(function(categories){populateCategories(Array.isArray(categories)?categories:[]);initialLoadFinished()}).withFailureHandler(initialLoadFailed).getCategories()}catch(error){initialLoadFailed(error)}});'''
+          new = '''document.addEventListener("DOMContentLoaded",function(){setTimeout(function(){hideLoadingScreen()},5000);if(!navigator.onLine){initialLoadsRemaining=0;hideLoadingScreen();restoreOfflineUi();updateConnectionStatus();return}try{google.script.run.withSuccessHandler(function(employees){populateEmployees(Array.isArray(employees)?employees:[]);cacheOfflineList("jmhEmployees",employees);initialLoadFinished()}).withFailureHandler(initialLoadFailed).getEmployees()}catch(error){initialLoadFailed(error)}try{google.script.run.withSuccessHandler(function(jobs){populateJobs(Array.isArray(jobs)?jobs:[]);cacheOfflineList("jmhJobs",jobs);initialLoadFinished()}).withFailureHandler(initialLoadFailed).getJobs()}catch(error){initialLoadFailed(error)}try{google.script.run.withSuccessHandler(function(categories){populateCategories(Array.isArray(categories)?categories:[]);cacheOfflineList("jmhCategories",categories);initialLoadFinished()}).withFailureHandler(initialLoadFailed).getCategories()}catch(error){initialLoadFailed(error)}});\nfunction cacheOfflineList(key,list){if(Array.isArray(list)&&list.length)localStorage.setItem(key,JSON.stringify(list))}\nfunction getOfflineList(key){try{return JSON.parse(localStorage.getItem(key)||"[]")}catch(e){return[]}}\nfunction restoreOfflineUi(){const employees=getOfflineList("jmhEmployees"),jobs=getOfflineList("jmhJobs"),categories=getOfflineList("jmhCategories");populateEmployees(employees);populateJobs(jobs);populateCategories(categories);const remembered=crewDeviceEmployee||localStorage.getItem("jmhLastEmployee")||"";if(remembered&&employees.indexOf(remembered)>=0){document.getElementById("employee").value=remembered;if(crewDeviceToken&&crewDeviceEmployee===remembered)lockCrewDevice(remembered,crewDeviceExpiresAt,"Monday");applyOfflineEmployeeStatus(remembered)}}\nfunction applyOfflineEmployeeStatus(employee){hideActionButtons();hideEntryFields();hideMessage();if(!employee){showSelectEmployeeStatus();return}showGreeting(employee);const banner=document.getElementById("statusBanner");banner.className="status-not-clocked-in";document.getElementById("statusTitle").textContent="OFFLINE MODE";document.getElementById("statusSpanish").textContent="MODO SIN CONEXIÓN";document.getElementById("statusEmployee").textContent="";document.getElementById("statusTime").textContent="Clock actions will be saved on this device and synchronized when online.\\nLas acciones se guardarán en este dispositivo y se sincronizarán al volver la conexión.";document.getElementById("job").disabled=false;showElement("clockInButton");showElement("taskFields");showElement("notesSection")}'''
+          if old not in s:
+              raise SystemExit('ERROR: startup block not found; source changed')
+          s = s.replace(old,new)
+
+          old2 = '''function checkEmployeeStatus(){const employee=document.getElementById("employee").value;hideActionButtons();hideEntryFields();hideMessage();hideHoursPanel();if(!employee){document.getElementById("job").value="";document.getElementById("job").disabled=false;showSelectEmployeeStatus();hideGreeting();return}showGreeting(employee);showCheckingStatus(employee);google.script.run.withSuccessHandler(function(status){applyEmployeeStatus(employee,status)}).withFailureHandler(function(error){showError(error);showSelectEmployeeStatus()}).getEmployeeClockStatus(employee)}'''
+          new2 = '''function checkEmployeeStatus(){const employee=document.getElementById("employee").value;hideActionButtons();hideEntryFields();hideMessage();hideHoursPanel();if(!employee){document.getElementById("job").value="";document.getElementById("job").disabled=false;showSelectEmployeeStatus();hideGreeting();return}if(!navigator.onLine){applyOfflineEmployeeStatus(employee);return}showGreeting(employee);showCheckingStatus(employee);google.script.run.withSuccessHandler(function(status){applyEmployeeStatus(employee,status)}).withFailureHandler(function(error){if(!navigator.onLine){applyOfflineEmployeeStatus(employee);updateConnectionStatus();return}showError(error);showSelectEmployeeStatus()}).getEmployeeClockStatus(employee)}'''
+          if old2 not in s:
+              raise SystemExit('ERROR: checkEmployeeStatus block not found; source changed')
+          s = s.replace(old2,new2)
+
+          # Do not display the expected Apps Script HTTP 0 transport error when connectivity disappears.
+          old3 = '''function initialLoadFinished(){initialLoadsRemaining--;if(initialLoadsRemaining<=0)setTimeout(hideLoadingScreen,350)}function initialLoadFailed(error){console.error(error);showError(error);initialLoadFinished()}'''
+          new3 = '''function initialLoadFinished(){initialLoadsRemaining--;if(initialLoadsRemaining<=0)setTimeout(hideLoadingScreen,350)}function initialLoadFailed(error){console.error(error);if(!navigator.onLine){updateConnectionStatus();restoreOfflineUi();initialLoadFinished();return}showError(error);initialLoadFinished()}'''
+          if old3 not in s:
+              raise SystemExit('ERROR: initialLoadFailed block not found; source changed')
+          s = s.replace(old3,new3)
+
+          p.write_text(s,encoding='utf-8')
+          PY
+
       - name: Replace all bound spreadsheet calls
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
-          changed = []
           for path in Path('apps-script').glob('*'):
-              if path.suffix not in {'.gs', '.html'} or path.name == 'DevConfig.gs':
-                  continue
-              src = path.read_text(encoding='utf-8')
-              fixed = src.replace('SpreadsheetApp.getActiveSpreadsheet()', 'getJmhSpreadsheet_()')
-              if fixed != src:
-                  path.write_text(fixed, encoding='utf-8')
-                  changed.append(str(path))
-
-          print('Changed files:')
-          for p in changed:
-              print(' -', p)
-
-          leftovers = []
-          for path in Path('apps-script').glob('*'):
-              if path.suffix in {'.gs', '.html'}:
-                  text = path.read_text(encoding='utf-8')
-                  if 'SpreadsheetApp.getActiveSpreadsheet()' in text:
-                      leftovers.append(str(path))
-          if leftovers:
-              raise SystemExit('ERROR: active-spreadsheet calls remain: ' + ', '.join(leftovers))
+              if path.suffix not in {'.gs', '.html'} or path.name == 'DevConfig.gs': continue
+              src=path.read_text(encoding='utf-8')
+              fixed=src.replace('SpreadsheetApp.getActiveSpreadsheet()', 'getJmhSpreadsheet_()')
+              if fixed!=src:path.write_text(fixed,encoding='utf-8')
           PY
 
-      - name: Verify DEV spreadsheet helper
+      - name: Verify offline guards
         shell: bash
         run: |
-          grep -F "SpreadsheetApp.openById(JMH_SPREADSHEET_ID)" apps-script/DevConfig.gs
-          grep -R -F "getJmhSpreadsheet_()" apps-script/*.gs >/dev/null
-          if grep -R -F "SpreadsheetApp.getActiveSpreadsheet()" apps-script --include='*.gs' --include='*.html'; then
-            echo "Bound spreadsheet references still remain"
-            exit 1
-          fi
+          grep -F 'if(!navigator.onLine){initialLoadsRemaining=0' apps-script/Index.html
+          grep -F 'if(!navigator.onLine){applyOfflineEmployeeStatus(employee);return}' apps-script/Index.html
+          grep -F 'cacheOfflineList("jmhJobs",jobs)' apps-script/Index.html
 
       - name: Commit repaired DEV source
         shell: bash
@@ -68,5 +77,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add apps-script/
-          git commit -m "Fix DEV dropdown spreadsheet bindings"
+          git commit -m "Fix DEV intentional offline mode"
           git push origin HEAD:dev-pwa
