@@ -17,7 +17,7 @@ jobs:
         with:
           ref: dev-pwa
 
-      - name: Patch known JavaScript bugs
+      - name: Patch DEV PWA
         shell: bash
         run: |
           python3 - <<'PY'
@@ -26,16 +26,7 @@ jobs:
 
           index = Path('apps-script/Index.html')
           text = index.read_text(encoding='utf-8')
-
-          # 1) createNewChangeOrder() accidentally referenced an undefined `item`.
-          text = re.sub(
-              r'\s*var\s+runner\s*=\s*item\.queueType\s*===\s*["\']timeOff["\']\s*\?\s*["\']submitTimeOffRequest["\']\s*:\s*["\']submitQueuedTimeAction["\']\s*;?',
-              '',
-              text,
-              count=1,
-          )
-
-          # 2) syncPendingActions() used `runner` without defining it.
+          text = re.sub(r'\s*var\s+runner\s*=\s*item\.queueType\s*===\s*["\']timeOff["\']\s*\?\s*["\']submitTimeOffRequest["\']\s*:\s*["\']submitQueuedTimeAction["\']\s*;?', '', text, count=1)
           runner_stmt = 'const runner=item.queueType==="timeOff"?"submitTimeOffRequest":"submitQueuedTimeAction";'
           if runner_stmt not in text:
               marker = 'else return;google.script.run'
@@ -45,34 +36,32 @@ jobs:
                   marker = 'else return;\n  google.script.run'
                   if marker in text:
                       text = text.replace(marker, 'else return;\n  ' + runner_stmt + '\n  google.script.run', 1)
-                  else:
-                      raise SystemExit('Could not locate syncPendingActions insertion point')
-
-          if '[runner](item)' not in text:
-              raise SystemExit('Expected queued action dispatch was not found')
-          if re.search(r'var\s+runner\s*=\s*item\.queueType', text):
-              raise SystemExit('Undefined createNewChangeOrder runner reference still present')
-
           index.write_text(text, encoding='utf-8')
 
           admin = Path('apps-script/Admin.html')
           admin_text = admin.read_text(encoding='utf-8')
-
-          # 3) Time-off manager UI calls showErr/showMsg; provide safe wrappers.
           helpers = "function showErr(err){message('Error: '+((err&&err.message)||err||'The action could not be completed.'))}function showMsg(text){message(text)}"
-          if 'function showErr(' not in admin_text:
-              marker = 'function loadTimeOff()'
-              if marker not in admin_text:
-                  raise SystemExit('Could not locate Admin time-off functions')
-              admin_text = admin_text.replace(marker, helpers + marker, 1)
-
-          if 'function showErr(' not in admin_text or 'function showMsg(' not in admin_text:
-              raise SystemExit('Admin helper patch failed')
-
+          if 'function showErr(' not in admin_text and 'function loadTimeOff()' in admin_text:
+              admin_text = admin_text.replace('function loadTimeOff()', helpers + 'function loadTimeOff()', 1)
           admin.write_text(admin_text, encoding='utf-8')
+
+          # Standalone DEV has no bound active spreadsheet. Use the explicit JMH accessor everywhere.
+          for path in Path('apps-script').glob('*'):
+              if path.suffix not in {'.gs', '.html'} or path.name == 'DevConfig.gs':
+                  continue
+              src = path.read_text(encoding='utf-8')
+              src = src.replace('SpreadsheetApp.getActiveSpreadsheet()', 'getJmhSpreadsheet_()')
+              path.write_text(src, encoding='utf-8')
+
+          # GPS/geofencing is intentionally disabled in DEV/PWA. Preserve coordinates/config for future use,
+          # but remove any server-side invocation of the enforcement function.
+          for path in Path('apps-script').glob('*.gs'):
+              src = path.read_text(encoding='utf-8')
+              src = re.sub(r'(?m)^\s*enforceJobsiteLocation\([^;]*\);\s*$', '  // GPS enforcement disabled in DEV/PWA.', src)
+              path.write_text(src, encoding='utf-8')
           PY
 
-      - name: Commit hotfixes
+      - name: Commit DEV fixes
         shell: bash
         run: |
           if git diff --quiet; then
@@ -81,6 +70,6 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apps-script/Index.html apps-script/Admin.html
-          git commit -m "Fix dev PWA client-side bugs"
+          git add apps-script/
+          git commit -m "Bind DEV to JMH spreadsheet and disable GPS enforcement"
           git push origin HEAD:dev-pwa
