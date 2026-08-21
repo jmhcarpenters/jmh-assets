@@ -46,7 +46,7 @@ jobs:
         run: |
           cat > .clasp.json <<'EOF'
           {
-            "scriptId": "1ohyAZER2KDEV_jp1WTRSV1B7Hxa3CbawmoUCRgOJAIxR85q2atEaX1Xn",
+            "scriptId": "1oHyAZER2KDEV_jplWTRSVlB7Hxa3CbdwmoUCRgOJAIxR85q2atEaXlXn",
             "rootDir": "."
           }
           EOF
