@@ -59,9 +59,9 @@ jobs:
         working-directory: apps-script
         run: clasp push --force
 
-      - name: Update permanent DEV deployment
+      - name: Update permanent DEV web app deployment
         working-directory: apps-script
         run: |
           clasp deploy \
-            --deploymentId "AKfycbz9_8p_RN5be7biru6N6RBUlzYkjpmHNQUe969CKBWj_XHjQizf1FdimXF3YcgX6guj_w" \
-            --description "Automated DEV deployment $GITHUB_SHA"
+            --deploymentId "AKfycbz5PeyEVxw3qeW3IeAaF9KEBllMYLaZWIYSRkgMiLBW3Um5NJGcFA6YrefIfd_y_I6N8w" \
+            --description "Automated DEV web app deployment $GITHUB_SHA"
