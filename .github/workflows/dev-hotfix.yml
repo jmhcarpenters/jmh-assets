@@ -45,7 +45,7 @@ jobs:
               admin_text = admin_text.replace('function loadTimeOff()', helpers + 'function loadTimeOff()', 1)
           admin.write_text(admin_text, encoding='utf-8')
 
-          # Standalone DEV has no bound active spreadsheet. Use the explicit JMH accessor everywhere.
+          # Full standalone DEV cleanup: every sheet access must use the explicit JMH spreadsheet.
           for path in Path('apps-script').glob('*'):
               if path.suffix not in {'.gs', '.html'} or path.name == 'DevConfig.gs':
                   continue
@@ -53,8 +53,7 @@ jobs:
               src = src.replace('SpreadsheetApp.getActiveSpreadsheet()', 'getJmhSpreadsheet_()')
               path.write_text(src, encoding='utf-8')
 
-          # GPS/geofencing is intentionally disabled in DEV/PWA. Preserve coordinates/config for future use,
-          # but remove any server-side invocation of the enforcement function.
+          # GPS/geofencing stays disabled in DEV/PWA while testing.
           for path in Path('apps-script').glob('*.gs'):
               src = path.read_text(encoding='utf-8')
               src = re.sub(r'(?m)^\s*enforceJobsiteLocation\([^;]*\);\s*$', '  // GPS enforcement disabled in DEV/PWA.', src)
@@ -71,5 +70,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add apps-script/
-          git commit -m "Bind DEV to JMH spreadsheet and disable GPS enforcement"
+          git commit -m "Fix all standalone DEV spreadsheet bindings"
           git push origin HEAD:dev-pwa
