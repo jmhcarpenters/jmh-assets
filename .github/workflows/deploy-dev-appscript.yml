@@ -6,6 +6,7 @@ on:
       - dev-pwa
     paths:
       - "apps-script/**"
+      - ".github/workflows/deploy-dev-appscript.yml"
   workflow_dispatch:
 
 concurrency:
@@ -19,6 +20,8 @@ jobs:
     steps:
       - name: Checkout dev-pwa
         uses: actions/checkout@v4
+        with:
+          ref: dev-pwa
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -51,6 +54,17 @@ jobs:
           }
           EOF
 
+      - name: Verify local DEV source before push
+        working-directory: apps-script
+        shell: bash
+        run: |
+          echo "Checking local source..."
+          if grep -R "getActiveSpreadsheet()" --include='*.gs' --include='*.html' .; then
+            echo "ERROR: DEV source still contains getActiveSpreadsheet()."
+            exit 1
+          fi
+          grep -n "getJmhSpreadsheet_" Code.gs | head -20
+
       - name: Verify DEV connection
         working-directory: apps-script
         run: clasp status
@@ -58,6 +72,28 @@ jobs:
       - name: Push code to Apps Script DEV
         working-directory: apps-script
         run: clasp push --force
+
+      - name: Pull DEV source back from Google and verify
+        shell: bash
+        run: |
+          mkdir -p /tmp/jmh-dev-verify
+          cp apps-script/.clasp.json /tmp/jmh-dev-verify/.clasp.json
+          cd /tmp/jmh-dev-verify
+          clasp pull
+          echo "Verifying source returned by Google Apps Script..."
+          if grep -R "getActiveSpreadsheet()" --include='*.gs' --include='*.html' .; then
+            echo "ERROR: Google Apps Script still contains getActiveSpreadsheet() after push."
+            exit 1
+          fi
+          if ! grep -R "function getJobs" . >/dev/null; then
+            echo "ERROR: getJobs() was not returned from the DEV Apps Script project."
+            exit 1
+          fi
+          if ! grep -R "getJmhSpreadsheet_" . >/dev/null; then
+            echo "ERROR: Explicit JMH spreadsheet binding was not returned from Google."
+            exit 1
+          fi
+          echo "Verified: Google Apps Script contains the corrected standalone DEV source."
 
       - name: Update permanent DEV web app deployment
         working-directory: apps-script
