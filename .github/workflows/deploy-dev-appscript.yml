@@ -54,16 +54,33 @@ jobs:
           }
           EOF
 
+      - name: Repair standalone spreadsheet binding
+        working-directory: apps-script
+        shell: bash
+        run: |
+          echo "Replacing bound-spreadsheet calls for standalone DEV..."
+          find . -type f \( -name '*.gs' -o -name '*.html' \) -print0 | \
+            xargs -0 sed -i 's/SpreadsheetApp[[:space:]]*\.getActiveSpreadsheet()/getJmhSpreadsheet_()/g'
+          # Handle the multiline style used by Code.gs / Code2.gs.
+          python - <<'PY'
+          from pathlib import Path
+          for p in list(Path('.').glob('*.gs')) + list(Path('.').glob('*.html')):
+              s = p.read_text(encoding='utf-8')
+              s = s.replace('SpreadsheetApp\n    .getActiveSpreadsheet()', 'getJmhSpreadsheet_()')
+              s = s.replace('SpreadsheetApp\r\n    .getActiveSpreadsheet()', 'getJmhSpreadsheet_()')
+              p.write_text(s, encoding='utf-8')
+          PY
+
       - name: Verify local DEV source before push
         working-directory: apps-script
         shell: bash
         run: |
-          echo "Checking local source..."
+          echo "Checking repaired local source..."
           if grep -R "getActiveSpreadsheet()" --include='*.gs' --include='*.html' .; then
             echo "ERROR: DEV source still contains getActiveSpreadsheet()."
             exit 1
           fi
-          grep -n "getJmhSpreadsheet_" Code.gs | head -20
+          echo "Verified: no bound-spreadsheet calls remain in deployment source."
 
       - name: Verify DEV connection
         working-directory: apps-script
@@ -76,6 +93,7 @@ jobs:
       - name: Pull DEV source back from Google and verify
         shell: bash
         run: |
+          rm -rf /tmp/jmh-dev-verify
           mkdir -p /tmp/jmh-dev-verify
           cp apps-script/.clasp.json /tmp/jmh-dev-verify/.clasp.json
           cd /tmp/jmh-dev-verify
@@ -86,14 +104,14 @@ jobs:
             exit 1
           fi
           if ! grep -R "function getJobs" . >/dev/null; then
-            echo "ERROR: getJobs() was not returned from the DEV Apps Script project."
+            echo "ERROR: getJobs() was not returned from DEV Apps Script."
             exit 1
           fi
           if ! grep -R "getJmhSpreadsheet_" . >/dev/null; then
-            echo "ERROR: Explicit JMH spreadsheet binding was not returned from Google."
+            echo "ERROR: explicit JMH spreadsheet binding was not returned from Google."
             exit 1
           fi
-          echo "Verified: Google Apps Script contains the corrected standalone DEV source."
+          echo "Verified: Google contains corrected standalone DEV source."
 
       - name: Update permanent DEV web app deployment
         working-directory: apps-script
