@@ -5,6 +5,7 @@ on:
     branches: [dev-pwa]
     paths:
       - '.github/workflows/dev-hotfix.yml'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -17,50 +18,47 @@ jobs:
         with:
           ref: dev-pwa
 
-      - name: Patch DEV PWA
+      - name: Replace all bound spreadsheet calls
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
 
-          index = Path('apps-script/Index.html')
-          text = index.read_text(encoding='utf-8')
-          text = re.sub(r'\s*var\s+runner\s*=\s*item\.queueType\s*===\s*["\']timeOff["\']\s*\?\s*["\']submitTimeOffRequest["\']\s*:\s*["\']submitQueuedTimeAction["\']\s*;?', '', text, count=1)
-          runner_stmt = 'const runner=item.queueType==="timeOff"?"submitTimeOffRequest":"submitQueuedTimeAction";'
-          if runner_stmt not in text:
-              marker = 'else return;google.script.run'
-              if marker in text:
-                  text = text.replace(marker, 'else return;' + runner_stmt + 'google.script.run', 1)
-              else:
-                  marker = 'else return;\n  google.script.run'
-                  if marker in text:
-                      text = text.replace(marker, 'else return;\n  ' + runner_stmt + '\n  google.script.run', 1)
-          index.write_text(text, encoding='utf-8')
-
-          admin = Path('apps-script/Admin.html')
-          admin_text = admin.read_text(encoding='utf-8')
-          helpers = "function showErr(err){message('Error: '+((err&&err.message)||err||'The action could not be completed.'))}function showMsg(text){message(text)}"
-          if 'function showErr(' not in admin_text and 'function loadTimeOff()' in admin_text:
-              admin_text = admin_text.replace('function loadTimeOff()', helpers + 'function loadTimeOff()', 1)
-          admin.write_text(admin_text, encoding='utf-8')
-
-          # Full standalone DEV cleanup: every sheet access must use the explicit JMH spreadsheet.
+          changed = []
           for path in Path('apps-script').glob('*'):
               if path.suffix not in {'.gs', '.html'} or path.name == 'DevConfig.gs':
                   continue
               src = path.read_text(encoding='utf-8')
-              src = src.replace('SpreadsheetApp.getActiveSpreadsheet()', 'getJmhSpreadsheet_()')
-              path.write_text(src, encoding='utf-8')
+              fixed = src.replace('SpreadsheetApp.getActiveSpreadsheet()', 'getJmhSpreadsheet_()')
+              if fixed != src:
+                  path.write_text(fixed, encoding='utf-8')
+                  changed.append(str(path))
 
-          # GPS/geofencing stays disabled in DEV/PWA while testing.
-          for path in Path('apps-script').glob('*.gs'):
-              src = path.read_text(encoding='utf-8')
-              src = re.sub(r'(?m)^\s*enforceJobsiteLocation\([^;]*\);\s*$', '  // GPS enforcement disabled in DEV/PWA.', src)
-              path.write_text(src, encoding='utf-8')
+          print('Changed files:')
+          for p in changed:
+              print(' -', p)
+
+          leftovers = []
+          for path in Path('apps-script').glob('*'):
+              if path.suffix in {'.gs', '.html'}:
+                  text = path.read_text(encoding='utf-8')
+                  if 'SpreadsheetApp.getActiveSpreadsheet()' in text:
+                      leftovers.append(str(path))
+          if leftovers:
+              raise SystemExit('ERROR: active-spreadsheet calls remain: ' + ', '.join(leftovers))
           PY
 
-      - name: Commit DEV fixes
+      - name: Verify DEV spreadsheet helper
+        shell: bash
+        run: |
+          grep -F "SpreadsheetApp.openById(JMH_SPREADSHEET_ID)" apps-script/DevConfig.gs
+          grep -R -F "getJmhSpreadsheet_()" apps-script/*.gs >/dev/null
+          if grep -R -F "SpreadsheetApp.getActiveSpreadsheet()" apps-script --include='*.gs' --include='*.html'; then
+            echo "Bound spreadsheet references still remain"
+            exit 1
+          fi
+
+      - name: Commit repaired DEV source
         shell: bash
         run: |
           if git diff --quiet; then
@@ -70,7 +68,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add apps-script/
-          git commit -m "Fix all standalone DEV spreadsheet bindings"
+          git commit -m "Fix DEV dropdown spreadsheet bindings"
           git push origin HEAD:dev-pwa
-
-# Triggered 2026-08-20 to repair all remaining standalone DEV spreadsheet bindings.
