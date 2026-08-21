@@ -18,7 +18,7 @@ jobs:
         with:
           ref: dev-pwa
 
-      - name: Fix offline transition and cached dropdowns
+      - name: Fix central offline error handling
         shell: bash
         run: |
           python3 - <<'PY'
@@ -26,31 +26,17 @@ jobs:
           p=Path('apps-script/Index.html')
           s=p.read_text(encoding='utf-8')
 
-          # Cache every populated top-level dropdown, regardless of which startup path filled it.
-          s=s.replace('function populateEmployees(employees){', 'function populateEmployees(employees){cacheOfflineList("jmhEmployees",employees);')
-          s=s.replace('function populateJobs(jobs){', 'function populateJobs(jobs){cacheOfflineList("jmhJobs",jobs);')
-          s=s.replace('function populateCategories(categories){', 'function populateCategories(categories){cacheOfflineList("jmhCategories",categories);')
+          # The real showError signature includes buttonId. Previous hotfix missed it.
+          old='function showError(error,buttonId){const message=typeof error==="string"?error:error.message||"Something went wrong.\\nAlgo salió mal.";showMessage(message,"error",buttonId)}'
+          new='function showError(error,buttonId){if(handleOfflineTransportError(error))return;const message=typeof error==="string"?error:error.message||"Something went wrong.\\nAlgo salió mal.";showMessage(message,"error",buttonId)}'
+          if old not in s:
+              raise SystemExit('ERROR: expected showError signature not found')
+          s=s.replace(old,new,1)
 
-          # A request that was already in flight when airplane mode is enabled can fail after
-          # navigator.onLine changes. Treat Apps Script HTTP 0 as an offline transition, not an error.
-          marker='function cacheOfflineList(key,list)'
-          helper='''function isOfflineTransportError(error){const text=String(error&&error.message?error.message:error||"");return !navigator.onLine||/HTTP\\s*0|NetworkError|Connection failure/i.test(text)}\nfunction handleOfflineTransportError(error){if(!isOfflineTransportError(error))return false;hideMessage();restoreOfflineUi();updateConnectionStatus();return true}\n'''
-          if helper not in s and marker in s:
-              s=s.replace(marker,helper+marker,1)
-
-          # Central error display must never paint HTTP 0 red while intentionally offline.
-          old='function showError(error){showMessage(error&&error.message?error.message:String(error),"error")} '
-          if old in s:
-              s=s.replace(old,'function showError(error){if(handleOfflineTransportError(error))return;showMessage(error&&error.message?error.message:String(error),"error")} ',1)
-          else:
-              s=s.replace('function showError(error){showMessage(error&&error.message?error.message:String(error),"error")}', 'function showError(error){if(handleOfflineTransportError(error))return;showMessage(error&&error.message?error.message:String(error),"error")}',1)
-
-          # When the browser fires offline, immediately clear a stale transport error and restore cache.
-          s=s.replace('window.addEventListener("offline",updateConnectionStatus);', 'window.addEventListener("offline",function(){hideMessage();restoreOfflineUi();updateConnectionStatus()});')
-
-          # Existing startup/status failures should also route through the central transport guard.
-          s=s.replace('function initialLoadFailed(error){console.error(error);if(!navigator.onLine){updateConnectionStatus();restoreOfflineUi();initialLoadFinished();return}showError(error);initialLoadFinished()}', 'function initialLoadFailed(error){console.error(error);if(handleOfflineTransportError(error)){initialLoadFinished();return}showError(error);initialLoadFinished()}')
-          s=s.replace('withFailureHandler(function(error){if(!navigator.onLine){applyOfflineEmployeeStatus(employee);updateConnectionStatus();return}showError(error);showSelectEmployeeStatus()}).getEmployeeClockStatus(employee)', 'withFailureHandler(function(error){if(handleOfflineTransportError(error)){applyOfflineEmployeeStatus(employee);return}showError(error);showSelectEmployeeStatus()}).getEmployeeClockStatus(employee)')
+          # Do not make dependent dropdown server calls while offline.
+          s=s.replace('function loadPhases(){const category=document.getElementById("category").value;resetDropdown("phase","Select phase / Seleccione fase");resetDropdown("task","Select task / Seleccione tarea");if(!category)return;google.script.run', 'function loadPhases(){const category=document.getElementById("category").value;resetDropdown("phase","Select phase / Seleccione fase");resetDropdown("task","Select task / Seleccione tarea");if(!category)return;if(!navigator.onLine){showMessage("Offline — reconnect to load phases. / Sin conexión — vuelva a conectarse para cargar las fases.","info");return}google.script.run')
+          s=s.replace('function loadTasks(){const category=document.getElementById("category").value,phase=document.getElementById("phase").value;resetDropdown("task","Select task / Seleccione tarea");if(!category||!phase)return;google.script.run', 'function loadTasks(){const category=document.getElementById("category").value,phase=document.getElementById("phase").value;resetDropdown("task","Select task / Seleccione tarea");if(!category||!phase)return;if(!navigator.onLine){showMessage("Offline — reconnect to load tasks. / Sin conexión — vuelva a conectarse para cargar las tareas.","info");return}google.script.run')
+          s=s.replace('function loadChangeOrders(selectedId){const job=document.getElementById("job").value;resetDropdown("changeOrder","Select change order / Seleccione orden de cambio");if(!job)return;google.script.run', 'function loadChangeOrders(selectedId){const job=document.getElementById("job").value;resetDropdown("changeOrder","Select change order / Seleccione orden de cambio");if(!job)return;if(!navigator.onLine){showMessage("Offline — reconnect to load change orders. / Sin conexión — vuelva a conectarse para cargar órdenes de cambio.","info");return}google.script.run')
 
           p.write_text(s,encoding='utf-8')
           PY
@@ -67,11 +53,11 @@ jobs:
               if fixed!=src:path.write_text(fixed,encoding='utf-8')
           PY
 
-      - name: Verify offline guards
+      - name: Verify exact offline fix
         shell: bash
         run: |
-          grep -F 'handleOfflineTransportError' apps-script/Index.html
-          grep -F 'cacheOfflineList("jmhJobs",jobs)' apps-script/Index.html
+          grep -F 'function showError(error,buttonId){if(handleOfflineTransportError(error))return;' apps-script/Index.html
+          grep -F 'if(!navigator.onLine){showMessage("Offline — reconnect to load phases.' apps-script/Index.html
           grep -F 'window.addEventListener("offline",function(){hideMessage();restoreOfflineUi();updateConnectionStatus()})' apps-script/Index.html
 
       - name: Commit repaired DEV source
@@ -84,5 +70,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add apps-script/
-          git commit -m "Fix DEV offline transition and cached dropdowns"
+          git commit -m "Fix central HTTP 0 offline error handling"
           git push origin HEAD:dev-pwa
