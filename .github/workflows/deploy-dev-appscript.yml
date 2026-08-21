@@ -61,7 +61,6 @@ jobs:
           echo "Replacing bound-spreadsheet calls for standalone DEV..."
           find . -type f \( -name '*.gs' -o -name '*.html' \) -print0 | \
             xargs -0 sed -i 's/SpreadsheetApp[[:space:]]*\.getActiveSpreadsheet()/getJmhSpreadsheet_()/g'
-          # Handle the multiline style used by Code.gs / Code2.gs.
           python - <<'PY'
           from pathlib import Path
           for p in list(Path('.').glob('*.gs')) + list(Path('.').glob('*.html')):
@@ -117,5 +116,5 @@ jobs:
         working-directory: apps-script
         run: |
           clasp deploy \
-            --deploymentId "AKfycbz5PeyEVxw3qeW3IeAaF9KEBllMYLaZWIYSRkgMiLBW3Um5NJGcFA6YrefIfd_y_I6N8w" \
+            --deploymentId "AKfycbxxygi6iiboyfFuauTaeHmFfG0XNshdpLU2U6m8aL8t7LSnEdZCYivtnn0Xw3x5ZuhywA" \
             --description "Automated DEV web app deployment $GITHUB_SHA"
