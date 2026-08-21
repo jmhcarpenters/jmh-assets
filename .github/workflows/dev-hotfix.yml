@@ -72,3 +72,5 @@ jobs:
           git add apps-script/
           git commit -m "Fix all standalone DEV spreadsheet bindings"
           git push origin HEAD:dev-pwa
+
+# Triggered 2026-08-20 to repair all remaining standalone DEV spreadsheet bindings.
